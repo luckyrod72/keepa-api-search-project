@@ -2,45 +2,77 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"io"
 	"net/http"
-	"os"
+	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	// 定义处理 HTTP 请求的函数
-	http.HandleFunc("/", handleRoot)
-	http.HandleFunc("/hello", handleHello)
+	// 创建一个默认的 gin 路由引擎
+	r := gin.Default()
 
-	// 获取端口号，Cloud Run 会通过 PORT 环境变量提供端口
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080" // 默认端口
-		log.Printf("使用默认端口 %s", port)
-	}
+	// 定义一个处理 Keepa API 请求的路由
+	r.GET("/keepa", handleKeepaQuery)
 
-	// 启动 HTTP 服务器
-	log.Printf("开始监听端口 %s", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("HTTP 服务器启动失败: %v", err)
-	}
+	// 运行服务器在 8080 端口
+	r.Run(":8080") // 监听并在 0.0.0.0:8080 上服务
 }
 
-// 根路径的处理函数
-func handleRoot(w http.ResponseWriter, r *http.Request) {
-	log.Printf("收到请求: %s %s", r.Method, r.URL.Path)
+// 处理 Keepa API 请求的函数
+func handleKeepaQuery(c *gin.Context) {
+	// Keepa API 的 URL 和凭证
+	url := "https://api.keepa.com/query?domain=1&key=rt7t1904up7638ddhboifgfksfedu7pap6gde8p5to6mtripoib3q4n1h3433rh4"
+	method := "POST"
 
-	// 如果不是根路径，返回 404
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+	// API 请求体
+	payload := strings.NewReader(`{
+		"page": 0,
+		"perPage": 500,
+		"rootCategory": 1055398,
+		"salesRankReference": 1055398,
+		"availabilityAmazon": 3,
+		"hasReviews": true,
+		"returnRate": 1,
+		"buyBoxStatsAmazon": 30,
+		"outOfStockCountAmazon90_gte": 5
+	}`)
+
+	// 创建 HTTP 客户端
+	client := &http.Client{}
+
+	// 创建请求
+	req, err := http.NewRequest(method, url, payload)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("创建请求失败: %v", err),
+		})
 		return
 	}
 
-	fmt.Fprintf(w, "欢迎访问 Golang HTTP 服务! 尝试访问 /hello 路径")
-}
+	// 设置请求头
+	req.Header.Add("Content-Type", "application/json")
 
-// /hello 路径的处理函数
-func handleHello(w http.ResponseWriter, r *http.Request) {
-	log.Printf("收到请求: %s %s", r.Method, r.URL.Path)
-	fmt.Fprintf(w, "你好，世界! 这是一个运行在 Google Cloud Run 上的 Go 服务")
+	// 发送请求
+	res, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("发送请求失败: %v", err),
+		})
+		return
+	}
+	defer res.Body.Close()
+
+	// 读取响应体
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("读取响应失败: %v", err),
+		})
+		return
+	}
+
+	// 将 Keepa API 的响应原样返回给客户端
+	c.Data(res.StatusCode, "application/json", body)
 }
