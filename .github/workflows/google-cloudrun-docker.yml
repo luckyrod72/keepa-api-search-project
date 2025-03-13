@@ -7,6 +7,7 @@ on:
 
 env:
   PRODUCT_DETAIL_URL: https://go-app-a4688f4fbfb7465cda117fc8573cc42344af054b-937025550093.us-central1.run.app
+  PROJECT_ID: scientific-host-421314
 
 jobs:
   build-and-deploy:
