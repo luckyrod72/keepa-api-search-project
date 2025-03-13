@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,20 +24,6 @@ type KeepaResponse struct {
 	ProcessingTimeInMs int      `json:"processingTimeInMs"`
 	AsinList           []string `json:"asinList"`
 	TotalResults       int      `json:"totalResults"`
-}
-
-// ProductDetailResponse represents the structure of the product detail API response
-type ProductDetailResponse struct {
-	ASIN    string      `json:"asin"`
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   string      `json:"error,omitempty"`
-}
-
-// CombinedResponse represents the combined response with Keepa data and product details
-type CombinedResponse struct {
-	KeepaData      KeepaResponse           `json:"keepaData"`
-	ProductDetails []ProductDetailResponse `json:"productDetails"`
 }
 
 func main() {
@@ -155,23 +140,17 @@ func handleKeepaQuery(c *gin.Context) {
 	log.Printf("[%s] Successfully parsed Keepa response with %d ASINs", requestID, len(keepaResponse.AsinList))
 
 	// Fetch product details for each ASIN
-	productDetails := fetchProductDetails(requestID, keepaResponse.AsinList)
-
-	// Combine Keepa response with product details
-	combinedResponse := CombinedResponse{
-		KeepaData:      keepaResponse,
-		ProductDetails: productDetails,
-	}
+	fetchProductDetails(requestID, keepaResponse.AsinList)
 
 	// Return combined response to the client
 	log.Printf("[%s] Returning combined response to client - Total request duration: %v",
 		requestID, time.Since(startTime))
-	c.JSON(http.StatusOK, combinedResponse)
+	c.JSON(http.StatusOK, nil)
 }
 
 // Fetch product details for a list of ASINs
-func fetchProductDetails(requestID string, asinList []string) []ProductDetailResponse {
-	productDetailURL := getEnv("PRODUCT_DETAIL_URL", "https://keepa-project-detail-937025550093.us-central1.run.app/product")
+func fetchProductDetails(requestID string, asinList []string) {
+	productDetailURL := getEnv("PRODUCT_DETAIL_URL", "https://keepa-project-detail-937025550093.us-central1.run.app")
 	log.Printf("[%s] Fetching product details for %d ASINs from %s", requestID, len(asinList), productDetailURL)
 
 	// Create a client with timeout
@@ -179,106 +158,43 @@ func fetchProductDetails(requestID string, asinList []string) []ProductDetailRes
 		Timeout: 60 * time.Second, // Longer timeout for multiple requests
 	}
 
-	// Use a wait group to wait for all goroutines to complete
-	var wg sync.WaitGroup
-	// Use a mutex to protect concurrent writes to the results slice
-	var mutex sync.Mutex
-	// Prepare results slice
-	results := make([]ProductDetailResponse, 0, len(asinList))
-
-	// Limit concurrent requests
-	maxConcurrent := 5
-	semaphore := make(chan struct{}, maxConcurrent)
-
-	// Process each ASIN
-	for _, asin := range asinList {
-		wg.Add(1)
-		semaphore <- struct{}{} // Acquire semaphore
-
-		go func(asin string) {
-			defer wg.Done()
-			defer func() { <-semaphore }() // Release semaphore
-
-			startTime := time.Now()
-			log.Printf("[%s] Fetching product details for ASIN: %s", requestID, asin)
-
-			// Create request URL with ASIN as query parameter
-			url := fmt.Sprintf("%s?asin=%s", productDetailURL, asin)
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				log.Printf("[%s] Error creating request for ASIN %s: %v", requestID, asin, err)
-				mutex.Lock()
-				results = append(results, ProductDetailResponse{
-					ASIN:    asin,
-					Success: false,
-					Error:   fmt.Sprintf("Failed to create request: %v", err),
-				})
-				mutex.Unlock()
-				return
-			}
-
-			// Send request
-			resp, err := client.Do(req)
-			if err != nil {
-				log.Printf("[%s] Error fetching product details for ASIN %s: %v", requestID, asin, err)
-				mutex.Lock()
-				results = append(results, ProductDetailResponse{
-					ASIN:    asin,
-					Success: false,
-					Error:   fmt.Sprintf("Request failed: %v", err),
-				})
-				mutex.Unlock()
-				return
-			}
-			defer resp.Body.Close()
-
-			// Read response body
-			respBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				log.Printf("[%s] Error reading response for ASIN %s: %v", requestID, asin, err)
-				mutex.Lock()
-				results = append(results, ProductDetailResponse{
-					ASIN:    asin,
-					Success: false,
-					Error:   fmt.Sprintf("Failed to read response: %v", err),
-				})
-				mutex.Unlock()
-				return
-			}
-
-			// Parse response
-			var productDetail map[string]interface{}
-			if err := json.Unmarshal(respBody, &productDetail); err != nil {
-				log.Printf("[%s] Error parsing response for ASIN %s: %v", requestID, asin, err)
-				mutex.Lock()
-				results = append(results, ProductDetailResponse{
-					ASIN:    asin,
-					Success: false,
-					Error:   fmt.Sprintf("Failed to parse response: %v", err),
-				})
-				mutex.Unlock()
-				return
-			}
-
-			// Add result to the results slice
-			mutex.Lock()
-			results = append(results, ProductDetailResponse{
-				ASIN:    asin,
-				Success: true,
-				Data:    productDetail,
-			})
-			mutex.Unlock()
-
-			log.Printf("[%s] Successfully fetched product details for ASIN %s in %v",
-				requestID, asin, time.Since(startTime))
-		}(asin)
+	// Create request payload
+	payload := map[string]interface{}{
+		"asins": asinList,
 	}
 
-	// Wait for all requests to complete
-	wg.Wait()
-	log.Printf("[%s] Completed fetching product details for all ASINs", requestID)
+	// Convert payload to JSON
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[%s] Error creating product details request payload: %v", requestID, err)
+		return
+	}
 
-	return results
+	// Create POST request
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/product", productDetailURL), bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Printf("[%s] Error creating product details request: %v", requestID, err)
+		return
+	}
+
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+
+	// Send request asynchronously (fire and forget)
+	go func() {
+		startTime := time.Now()
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("[%s] Error sending product details request: %v", requestID, err)
+			return
+		}
+		defer resp.Body.Close()
+
+		log.Printf("[%s] Product details request sent successfully - Status: %d, Duration: %v",
+			requestID, resp.StatusCode, time.Since(startTime))
+	}()
+
+	log.Printf("[%s] Product details request dispatched asynchronously", requestID)
 }
 
 // Get environment variable or return default value
