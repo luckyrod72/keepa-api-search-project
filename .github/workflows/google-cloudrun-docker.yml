@@ -58,4 +58,5 @@ jobs:
             --cpu=1 \
             --min-instances=0 \
             --max-instances=10 \
-            --set-env-vars=PRODUCT_DETAIL_URL=${{env.PRODUCT_DETAIL_URL}}
+            --set-env-vars=PRODUCT_DETAIL_URL=${{env.PRODUCT_DETAIL_URL}} \
+            --set-env-vars=KEEPA_MAX_RETRIES=${{env.KEEPA_MAX_RETRIES}}
