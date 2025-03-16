@@ -62,7 +62,7 @@ func handleKeepaQuery(c *gin.Context) {
 	interval, _ := time.ParseDuration(intervalStr + "m")
 	categoryList := getEnv("KEEPA_CATEGORY", "all")
 
-	categoryListArr := strings.Split(categoryList, ",")
+	categoryListArr := strings.Split(categoryList, ";")
 
 	// Initialize Keepa API request body
 	for _, category := range categoryListArr {
