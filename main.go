@@ -60,13 +60,27 @@ func handleKeepaQuery(c *gin.Context) {
 	maxRetries, _ := strconv.Atoi(maxRetriesStr)
 	intervalStr := getEnv("KEEPA_RETRY_INTERVAL", "10")
 	interval, _ := time.ParseDuration(intervalStr + "m")
-	categoryList := getEnv("KEEPA_CATEGORY", "all")
+	categoryList := getEnv("KEEPA_CATEGORY", "1055398;3760901;3760911;16310101;165796011;2619533011;3375251;228013;1064954;172282")
 
-	categoryListArr := strings.Split(categoryList, "1055398+3760901+3760911+16310101+165796011+2619533011+3375251+228013+1064954+172282")
+	categoryListArr := strings.Split(categoryList, ";")
+
+	// Parse JSON data from the request
+	var requestData map[string]interface{}
+	if err := c.ShouldBindJSON(&requestData); err != nil {
+		log.Printf("[%s] Error parsing request JSON: %v", requestID, err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("Invalid request data: %v", err),
+		})
+		return
+	}
 
 	// Initialize Keepa API request body
 	for _, category := range categoryListArr {
-		go requestProductDetails(domain, apiKey, requestID, maxRetries, interval, c, category)
+		go func(requestData map[string]interface{}, category string) {
+			requestData["rootCategory"] = category
+			requestData["salesRankReference"] = category
+			requestProductDetails(domain, apiKey, requestID, maxRetries, interval, requestData)
+		}(requestData, category)
 	}
 
 	// Return combined response to the client
@@ -161,24 +175,11 @@ func logRequestParams(requestID string, params map[string]interface{}) {
 	log.Printf("[%s] Request parameters: %s", requestID, string(paramJSON))
 }
 
-func requestProductDetails(domain, apiKey, requestID string, maxRetries int, interval time.Duration, c *gin.Context, category string) {
+func requestProductDetails(domain, apiKey, requestID string, maxRetries int, interval time.Duration, requestData map[string]interface{}) {
 	url := fmt.Sprintf("https://api.keepa.com/query?domain=%s&key=%s", domain, apiKey)
 	method := "POST"
 
 	log.Printf("[%s] Using Keepa API endpoint: %s (domain: %s)", requestID, url, domain)
-
-	// Parse JSON data from the request
-	var requestData map[string]interface{}
-	if err := c.ShouldBindJSON(&requestData); err != nil {
-		log.Printf("[%s] Error parsing request JSON: %v", requestID, err)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("Invalid request data: %v", err),
-		})
-		return
-	}
-
-	requestData["rootCategory"] = category
-	requestData["salesRankReference"] = category
 
 	// Log request parameters (excluding sensitive data)
 	logRequestParams(requestID, requestData)
@@ -187,9 +188,6 @@ func requestProductDetails(domain, apiKey, requestID string, maxRetries int, int
 	jsonData, err := json.Marshal(requestData)
 	if err != nil {
 		log.Printf("[%s] Error marshaling JSON data: %v", requestID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("Failed to process request data: %v", err),
-		})
 		return
 	}
 
@@ -209,9 +207,6 @@ func requestProductDetails(domain, apiKey, requestID string, maxRetries int, int
 		req, err := http.NewRequest(method, url, bytes.NewBuffer(jsonData))
 		if err != nil {
 			log.Printf("[%s] Error creating HTTP request: %v", requestID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to create request: %v", err),
-			})
 			return
 		}
 
@@ -227,9 +222,6 @@ func requestProductDetails(domain, apiKey, requestID string, maxRetries int, int
 		if err != nil {
 			log.Printf("[%s] Error sending request to Keepa API: %v", requestID, err)
 			if attempt == maxRetries-1 {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": fmt.Sprintf("Failed to send request after %d attempts: %v", maxRetries, err),
-				})
 				return
 			}
 			// Calculate backoff time for next retry
@@ -247,9 +239,6 @@ func requestProductDetails(domain, apiKey, requestID string, maxRetries int, int
 			res.Body.Close()
 			if attempt == maxRetries-1 {
 				log.Printf("[%s] Maximum retries reached for rate limiting", requestID)
-				c.JSON(http.StatusTooManyRequests, gin.H{
-					"error": "Rate limited by Keepa API after multiple retries",
-				})
 				return
 			}
 
@@ -267,9 +256,6 @@ func requestProductDetails(domain, apiKey, requestID string, maxRetries int, int
 		if err != nil {
 			log.Printf("[%s] Error reading response body: %v", requestID, err)
 			if attempt == maxRetries-1 {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": fmt.Sprintf("Failed to read response after %d attempts: %v", maxRetries, err),
-				})
 				return
 			}
 			// Calculate backoff time for next retry
@@ -283,9 +269,6 @@ func requestProductDetails(domain, apiKey, requestID string, maxRetries int, int
 		if err := json.Unmarshal(body, &keepaResponse); err != nil {
 			log.Printf("[%s] Error parsing Keepa API response: %v", requestID, err)
 			if attempt == maxRetries-1 {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": fmt.Sprintf("Failed to parse Keepa API response after %d attempts: %v", maxRetries, err),
-				})
 				return
 			}
 			// Calculate backoff time for next retry
