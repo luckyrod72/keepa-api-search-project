@@ -89,7 +89,7 @@ func handleKeepaQuery(c *gin.Context) {
 
 	// Retry parameters
 	maxRetries := 5
-	initialBackoff := 30 * time.Second
+	initialBackoff := 60 * time.Second
 	var body []byte
 	var res *http.Response
 	var keepaResponse KeepaResponse
