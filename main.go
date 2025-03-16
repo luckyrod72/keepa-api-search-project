@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -54,150 +56,23 @@ func handleKeepaQuery(c *gin.Context) {
 	// Get Keepa API URL and credentials from environment variables
 	domain := getEnv("KEEPA_DOMAIN", "1")
 	apiKey := getEnv("KEEPA_API_KEY", "rt7t1904up7638ddhboifgfksfedu7pap6gde8p5to6mtripoib3q4n1h3433rh4")
-	url := fmt.Sprintf("https://api.keepa.com/query?domain=%s&key=%s", domain, apiKey)
-	method := "POST"
+	maxRetriesStr := getEnv("KEEPA_MAX_RETRIES", "3")
+	maxRetries, _ := strconv.Atoi(maxRetriesStr)
+	intervalStr := getEnv("KEEPA_RETRY_INTERVAL", "10")
+	interval, _ := time.ParseDuration(intervalStr + "m")
+	categoryList := getEnv("KEEPA_CATEGORY", "all")
 
-	log.Printf("[%s] Using Keepa API endpoint: %s (domain: %s)", requestID, url, domain)
+	categoryListArr := strings.Split(categoryList, ",")
 
-	// Parse JSON data from the request
-	var requestData map[string]interface{}
-	if err := c.ShouldBindJSON(&requestData); err != nil {
-		log.Printf("[%s] Error parsing request JSON: %v", requestID, err)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("Invalid request data: %v", err),
-		})
-		return
+	// Initialize Keepa API request body
+	for _, category := range categoryListArr {
+		go requestProductDetails(domain, apiKey, requestID, maxRetries, interval, c, category)
 	}
-
-	// Log request parameters (excluding sensitive data)
-	logRequestParams(requestID, requestData)
-
-	// Convert request data to JSON string
-	jsonData, err := json.Marshal(requestData)
-	if err != nil {
-		log.Printf("[%s] Error marshaling JSON data: %v", requestID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("Failed to process request data: %v", err),
-		})
-		return
-	}
-
-	// Create HTTP client
-	client := &http.Client{
-		Timeout: 60 * time.Second,
-	}
-
-	// Retry parameters
-	maxRetries := 5
-	initialBackoff := 60 * time.Second
-	var body []byte
-	var res *http.Response
-	var keepaResponse KeepaResponse
-
-	// Retry loop with exponential backoff
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Create request
-		req, err := http.NewRequest(method, url, bytes.NewBuffer(jsonData))
-		if err != nil {
-			log.Printf("[%s] Error creating HTTP request: %v", requestID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to create request: %v", err),
-			})
-			return
-		}
-
-		// Set request headers
-		req.Header.Add("Content-Type", "application/json")
-		log.Printf("[%s] Sending request to Keepa API (attempt %d/%d)", requestID, attempt+1, maxRetries)
-
-		// Send request
-		apiStartTime := time.Now()
-		res, err = client.Do(req)
-		apiDuration := time.Since(apiStartTime)
-
-		if err != nil {
-			log.Printf("[%s] Error sending request to Keepa API: %v", requestID, err)
-			if attempt == maxRetries-1 {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": fmt.Sprintf("Failed to send request after %d attempts: %v", maxRetries, err),
-				})
-				return
-			}
-			// Calculate backoff time for next retry
-			backoffTime := initialBackoff * time.Duration(1<<attempt)
-			log.Printf("[%s] Retrying in %v...", requestID, backoffTime)
-			time.Sleep(backoffTime)
-			continue
-		}
-
-		log.Printf("[%s] Received response from Keepa API - Status: %d, Duration: %v",
-			requestID, res.StatusCode, apiDuration)
-
-		// Check for rate limiting (HTTP 429)
-		if res.StatusCode == http.StatusTooManyRequests {
-			res.Body.Close()
-			if attempt == maxRetries-1 {
-				log.Printf("[%s] Maximum retries reached for rate limiting", requestID)
-				c.JSON(http.StatusTooManyRequests, gin.H{
-					"error": "Rate limited by Keepa API after multiple retries",
-				})
-				return
-			}
-
-			// Calculate backoff time for next retry
-			backoffTime := initialBackoff * time.Duration(1<<attempt)
-			log.Printf("[%s] Rate limited (429). Retrying in %v...", requestID, backoffTime)
-			time.Sleep(backoffTime)
-			continue
-		}
-
-		// Read response body
-		body, err = io.ReadAll(res.Body)
-		res.Body.Close()
-
-		if err != nil {
-			log.Printf("[%s] Error reading response body: %v", requestID, err)
-			if attempt == maxRetries-1 {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": fmt.Sprintf("Failed to read response after %d attempts: %v", maxRetries, err),
-				})
-				return
-			}
-			// Calculate backoff time for next retry
-			backoffTime := initialBackoff * time.Duration(1<<attempt)
-			log.Printf("[%s] Retrying in %v...", requestID, backoffTime)
-			time.Sleep(backoffTime)
-			continue
-		}
-
-		// Parse Keepa API response
-		if err := json.Unmarshal(body, &keepaResponse); err != nil {
-			log.Printf("[%s] Error parsing Keepa API response: %v", requestID, err)
-			if attempt == maxRetries-1 {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": fmt.Sprintf("Failed to parse Keepa API response after %d attempts: %v", maxRetries, err),
-				})
-				return
-			}
-			// Calculate backoff time for next retry
-			backoffTime := initialBackoff * time.Duration(1<<attempt)
-			log.Printf("[%s] Retrying in %v...", requestID, backoffTime)
-			time.Sleep(backoffTime)
-			continue
-		}
-
-		// If we got here, the request was successful
-		log.Printf("[%s] Successfully parsed Keepa response with %d ASINs", requestID, len(keepaResponse.AsinList))
-		break
-	}
-
-	// Fetch product details for each ASIN
-	fetchProductDetails(requestID, keepaResponse.AsinList)
 
 	// Return combined response to the client
 	log.Printf("[%s] Returning combined response to client - Total request duration: %v",
 		requestID, time.Since(startTime))
-	c.JSON(http.StatusOK, keepaResponse)
+	c.JSON(http.StatusOK, nil)
 }
 
 // Fetch product details for a list of ASINs
@@ -284,4 +159,147 @@ func logRequestParams(requestID string, params map[string]interface{}) {
 	}
 
 	log.Printf("[%s] Request parameters: %s", requestID, string(paramJSON))
+}
+
+func requestProductDetails(domain, apiKey, requestID string, maxRetries int, interval time.Duration, c *gin.Context, category string) {
+	url := fmt.Sprintf("https://api.keepa.com/query?domain=%s&key=%s", domain, apiKey)
+	method := "POST"
+
+	log.Printf("[%s] Using Keepa API endpoint: %s (domain: %s)", requestID, url, domain)
+
+	// Parse JSON data from the request
+	var requestData map[string]interface{}
+	if err := c.ShouldBindJSON(&requestData); err != nil {
+		log.Printf("[%s] Error parsing request JSON: %v", requestID, err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("Invalid request data: %v", err),
+		})
+		return
+	}
+
+	requestData["rootCategory"] = category
+	requestData["salesRankReference"] = category
+
+	// Log request parameters (excluding sensitive data)
+	logRequestParams(requestID, requestData)
+
+	// Convert request data to JSON string
+	jsonData, err := json.Marshal(requestData)
+	if err != nil {
+		log.Printf("[%s] Error marshaling JSON data: %v", requestID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to process request data: %v", err),
+		})
+		return
+	}
+
+	// Create HTTP client
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+	}
+
+	// Retry parameters
+	var body []byte
+	var res *http.Response
+	var keepaResponse KeepaResponse
+
+	// Retry loop with exponential backoff
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Create request
+		req, err := http.NewRequest(method, url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			log.Printf("[%s] Error creating HTTP request: %v", requestID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("Failed to create request: %v", err),
+			})
+			return
+		}
+
+		// Set request headers
+		req.Header.Add("Content-Type", "application/json")
+		log.Printf("[%s] Sending request to Keepa API (attempt %d/%d)", requestID, attempt+1, maxRetries)
+
+		// Send request
+		apiStartTime := time.Now()
+		res, err = client.Do(req)
+		apiDuration := time.Since(apiStartTime)
+
+		if err != nil {
+			log.Printf("[%s] Error sending request to Keepa API: %v", requestID, err)
+			if attempt == maxRetries-1 {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": fmt.Sprintf("Failed to send request after %d attempts: %v", maxRetries, err),
+				})
+				return
+			}
+			// Calculate backoff time for next retry
+			backoffTime := interval * time.Duration(1<<attempt)
+			log.Printf("[%s] Retrying in %v...", requestID, backoffTime)
+			time.Sleep(backoffTime)
+			continue
+		}
+
+		log.Printf("[%s] Received response from Keepa API - Status: %d, Duration: %v",
+			requestID, res.StatusCode, apiDuration)
+
+		// Check for rate limiting (HTTP 429)
+		if res.StatusCode == http.StatusTooManyRequests {
+			res.Body.Close()
+			if attempt == maxRetries-1 {
+				log.Printf("[%s] Maximum retries reached for rate limiting", requestID)
+				c.JSON(http.StatusTooManyRequests, gin.H{
+					"error": "Rate limited by Keepa API after multiple retries",
+				})
+				return
+			}
+
+			// Calculate backoff time for next retry
+			backoffTime := interval * time.Duration(1<<attempt)
+			log.Printf("[%s] Rate limited (429). Retrying in %v...", requestID, backoffTime)
+			time.Sleep(backoffTime)
+			continue
+		}
+
+		// Read response body
+		body, err = io.ReadAll(res.Body)
+		res.Body.Close()
+
+		if err != nil {
+			log.Printf("[%s] Error reading response body: %v", requestID, err)
+			if attempt == maxRetries-1 {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": fmt.Sprintf("Failed to read response after %d attempts: %v", maxRetries, err),
+				})
+				return
+			}
+			// Calculate backoff time for next retry
+			backoffTime := interval * time.Duration(1<<attempt)
+			log.Printf("[%s] Retrying in %v...", requestID, backoffTime)
+			time.Sleep(backoffTime)
+			continue
+		}
+
+		// Parse Keepa API response
+		if err := json.Unmarshal(body, &keepaResponse); err != nil {
+			log.Printf("[%s] Error parsing Keepa API response: %v", requestID, err)
+			if attempt == maxRetries-1 {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": fmt.Sprintf("Failed to parse Keepa API response after %d attempts: %v", maxRetries, err),
+				})
+				return
+			}
+			// Calculate backoff time for next retry
+			backoffTime := interval * time.Duration(1<<attempt)
+			log.Printf("[%s] Retrying in %v...", requestID, backoffTime)
+			time.Sleep(backoffTime)
+			continue
+		}
+
+		// If we got here, the request was successful
+		log.Printf("[%s] Successfully parsed Keepa response with %d ASINs", requestID, len(keepaResponse.AsinList))
+		break
+	}
+
+	// Fetch product details for each ASIN
+	fetchProductDetails(requestID, keepaResponse.AsinList)
 }

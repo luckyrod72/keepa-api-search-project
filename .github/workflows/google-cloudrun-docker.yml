@@ -9,6 +9,10 @@ env:
   PRODUCT_DETAIL_URL: https://keepa-project-detail-72b7fb8d9b03624046df407f69f5-q4eaq5maka-uc.a.run.app
   PROJECT_ID: scientific-host-421314
   REGION: us-central1
+  KEEPA_CATEGORY: 1055398,3760901,3760911,16310101,165796011,2619533011,3375251,228013,1064954,172282
+  KEEPA_MAX_RETRIES: 5
+  KEEPA_RETRY_INTERVAL: 5
+
 
 jobs:
   build-and-deploy:
@@ -55,4 +59,7 @@ jobs:
             --cpu=1 \
             --min-instances=0 \
             --max-instances=10 \
-            --set-env-vars=PRODUCT_DETAIL_URL=${{env.PRODUCT_DETAIL_URL}}
+            --set-env-vars=PRODUCT_DETAIL_URL=${{env.PRODUCT_DETAIL_URL}} \
+            --set-env-vars=KEEPA_MAX_RETRIES=${{env.KEEPA_MAX_RETRIES}} \ 
+            --set-env-vars=KEEPA_CATEGORY=${{env.KEEPA_CATEGORY}} \ 
+            --set-env-vars=KEEPA_RETRY_INTERVAL=${{env.KEEPA_RETRY_INTERVAL}}
