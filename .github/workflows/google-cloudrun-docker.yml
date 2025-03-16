@@ -61,4 +61,5 @@ jobs:
             --max-instances=10 \
             --set-env-vars=PRODUCT_DETAIL_URL=${{env.PRODUCT_DETAIL_URL}} \
             --set-env-vars=KEEPA_MAX_RETRIES=${{env.KEEPA_MAX_RETRIES}} \ 
+            --set-env-vars=KEEPA_CATEGORY=${{env.KEEPA_CATEGORY}} \ 
             --set-env-vars=KEEPA_RETRY_INTERVAL=${{env.KEEPA_RETRY_INTERVAL}}
