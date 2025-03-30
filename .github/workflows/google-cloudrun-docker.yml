@@ -48,7 +48,7 @@ jobs:
       - name: Deploy to Cloud Run
         if: github.event_name != 'pull_request'
         run: |
-          gcloud run deploy go-app-${{ github.sha }} \
+          gcloud run deploy keepa-api-search-project-${{ github.sha }} \
             --image=us-central1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/keepa-search:${{ github.sha }} \
             --platform=managed \
             --region=${{ env.REGION }} \
