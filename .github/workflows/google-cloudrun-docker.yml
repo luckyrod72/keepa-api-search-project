@@ -7,7 +7,7 @@ on:
 
 env:
   PRODUCT_DETAIL_URL: https://keepa-project-detail-72b7fb8d9b03624046df407f69f5-q4eaq5maka-uc.a.run.app
-  PROJECT_ID: scientific-host-421314
+  PROJECT_ID: intrepid-kiln-455107-s1
   REGION: us-central1
   KEEPA_MAX_RETRIES: 5
   KEEPA_RETRY_INTERVAL: 5
@@ -56,7 +56,7 @@ jobs:
             --port=8081 \
             --memory=256Mi \
             --cpu=1 \
-            --min-instances=0 \
+            --min-instances=1 \
             --max-instances=10 \
             --set-env-vars=PRODUCT_DETAIL_URL=${{env.PRODUCT_DETAIL_URL}} \
             --set-env-vars=KEEPA_MAX_RETRIES=${{env.KEEPA_MAX_RETRIES}} \
