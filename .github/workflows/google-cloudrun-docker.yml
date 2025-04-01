@@ -56,12 +56,11 @@ jobs:
             --platform=managed \
             --region=${{ env.REGION }} \
             --allow-unauthenticated \
-            --port=8081 \
+            --port=8080 \
             --memory=256Mi \
             --cpu=1 \
-            --min-instances=0 \
+            --min-instances=1 \
             --max-instances=10 \
-            --set-env-vars=PRODUCT_DETAIL_URL=${{env.PRODUCT_DETAIL_URL}} \
             --set-env-vars=REDIS_ADDR=${{ env.REDIS_ADDR }} \
             --set-env-vars=REDIS_PASSWORD=${{ env.REDIS_PASSWORD }} \
             --set-env-vars=REDIS_DB=${{ env.REDIS_DB }} \
