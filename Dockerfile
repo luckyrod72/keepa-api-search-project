@@ -1,28 +1,27 @@
-# 使用官方 Golang 镜像作为构建环境
 FROM golang:1.23 as builder
 
-# 设置工作目录
+# Set the working directory inside the container
 WORKDIR /app
 
-# 复制 go.mod 和 go.sum 文件（如果有）
-COPY go.mod go.sum* ./
+# Copy go.mod and go.sum to download dependencies
+COPY go.mod go.sum ./
 
-# 下载依赖
+# Download dependencies to ensure go.sum is complete
 RUN go mod download
 
-# 复制源代码
+# Copy the rest of the application source code
 COPY . .
 
-# 构建应用
-RUN CGO_ENABLED=0 GOOS=linux go build -v -o server
+# Build the Go application with CGO disabled for a static binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o server
 
-# 使用 Google 的 distroless 作为生产环境
+# Stage 2: Create a minimal runtime image using Google's distroless
 FROM gcr.io/distroless/base-debian11
 
-# 复制构建的应用
+# Copy the compiled binary from the builder stage
 COPY --from=builder /app/server /server
 
-# 暴露端口
+# Expose the port the application will run on
 EXPOSE 8080
 
 # 运行应用
