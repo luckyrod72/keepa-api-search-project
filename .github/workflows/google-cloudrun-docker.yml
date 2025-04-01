@@ -66,4 +66,5 @@ jobs:
             --set-env-vars=REDIS_DB=${{ env.REDIS_DB }} \
             --set-env-vars=INSTANCE_ID=${{env.INSTANCE_ID}} \
             --set-env-vars=REGION=${{env.REGION}} \
+            --set-env-vars=PROJECT_ID=${{env.PROJECT_ID}} \
             --vpc-connector=redis-connector 
