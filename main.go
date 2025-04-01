@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	"os"
 	"strconv"
 	"time"
 )
@@ -104,11 +105,9 @@ func main() {
 	// Endpoint: Trigger Product Finder and Product Request
 	r.POST("/keepa", client.handleFetchProducts)
 
-	port := getEnv("PORT", "8080")
-
-	// Start HTTP server
-	client.Logger.Printf("Starting server on port %s", port)
-	if err := r.Run(fmt.Sprintf(":%s", port)); err != nil {
-		client.Logger.Fatalf("Failed to start server: %v", err)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
+	r.Run(":" + port)
 }
