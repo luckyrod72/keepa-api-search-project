@@ -338,60 +338,62 @@ func (client *KeepaClient) handleFetchProducts(c *gin.Context) {
 		return
 	}
 
-	for _, category := range categoryListArr {
-		requestData["rootCategory"] = category
-		requestData["salesRankReference"] = category
-		// Create task
-		client.Logger.Printf("Created task %s for Fetch Products (pageSize: %d)", taskID, pageSize)
+	go func(categoryListArr []string, requestData map[string]interface{}, taskID string) {
+		for _, category := range categoryListArr {
+			requestData["rootCategory"] = category
+			requestData["salesRankReference"] = category
+			// Create task
+			client.Logger.Printf("Created task %s for Fetch Products (pageSize: %d)", taskID, pageSize)
 
-		// Step 1: Call Product Finder to get ASIN list
-		asins, err := client.ProductFinder(requestData, pageSize)
-		if err != nil {
-			client.Logger.Printf("Task %s failed at Product Finder: %v", taskID, err)
-			return
-		}
-
-		// Update task state
-		client.Logger.Printf("Task %s: Retrieved %d ASINs from Product Finder", taskID, len(asins))
-
-		// Step 2: Call Product Request for each ASIN individually
-		for i, asin := range asins {
-			var product *SimplifiedResponse
-
-			// Create a context with timeout
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-
-			// Try to get data from Redis first
-			if product, err = getProductFromRedis(ctx, asin); err == nil {
-				if err = firestoreFunction(ctx, taskID, asin, product); err != nil {
-					client.Logger.Printf("[RequestID: %s] Failed to save data to Firestore for ASIN %s: %v", taskID, asin, err)
-					continue // Skip failed ASIN and continue with the next one
-				}
+			// Step 1: Call Product Finder to get ASIN list
+			asins, err := client.ProductFinder(requestData, pageSize)
+			if err != nil {
+				client.Logger.Printf("Task %s failed at Product Finder: %v", taskID, err)
 				return
 			}
 
-			// Call Product Request for each ASIN individually and append the response to the allProducts slice
-			product, err = client.ProductRequest(asin)
-			if err != nil {
-				client.Logger.Printf("Task %s: Failed to retrieve data for ASIN %s: %v", taskID, asin, err)
-				continue // Skip failed ASIN and continue with the next one
+			// Update task state
+			client.Logger.Printf("Task %s: Retrieved %d ASINs from Product Finder", taskID, len(asins))
+
+			// Step 2: Call Product Request for each ASIN individually
+			for i, asin := range asins {
+				var product *SimplifiedResponse
+
+				// Create a context with timeout
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer cancel()
+
+				// Try to get data from Redis first
+				if product, err = getProductFromRedis(ctx, asin); err == nil {
+					if err = firestoreFunction(ctx, taskID, asin, product); err != nil {
+						client.Logger.Printf("[RequestID: %s] Failed to save data to Firestore for ASIN %s: %v", taskID, asin, err)
+						continue // Skip failed ASIN and continue with the next one
+					}
+					return
+				}
+
+				// Call Product Request for each ASIN individually and append the response to the allProducts slice
+				product, err = client.ProductRequest(asin)
+				if err != nil {
+					client.Logger.Printf("Task %s: Failed to retrieve data for ASIN %s: %v", taskID, asin, err)
+					continue // Skip failed ASIN and continue with the next one
+				}
+
+				// Save to Redis
+				err = saveProductToRedis(ctx, asin, product)
+				if err != nil {
+					client.Logger.Printf("[RequestID: %s] Failed to save data to Redis for ASIN %s: %v", taskID, asin, err)
+				}
+
+				firestoreFunction(ctx, taskID, asin, product)
+
+				client.Logger.Printf("Task %s: Retrieved data for ASIN %s (%d/%d)", taskID, asin, i+1, len(asins))
 			}
 
-			// Save to Redis
-			err = saveProductToRedis(ctx, asin, product)
-			if err != nil {
-				client.Logger.Printf("[RequestID: %s] Failed to save data to Redis for ASIN %s: %v", taskID, asin, err)
-			}
-
-			firestoreFunction(ctx, taskID, asin, product)
-
-			client.Logger.Printf("Task %s: Retrieved data for ASIN %s (%d/%d)", taskID, asin, i+1, len(asins))
+			// Task completed
+			client.Logger.Printf("Task %s completed: Processed %d ASINs", taskID, len(asins))
 		}
-
-		// Task completed
-		client.Logger.Printf("Task %s completed: Processed %d ASINs", taskID, len(asins))
-	}
+	}(categoryListArr, requestData, taskID)
 
 	c.JSON(http.StatusAccepted, gin.H{"task_id": taskID, "status": "pending"})
 }
