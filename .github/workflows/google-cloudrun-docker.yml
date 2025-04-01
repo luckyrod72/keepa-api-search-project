@@ -8,7 +8,7 @@ on:
 env:
   PROJECT_ID: intrepid-kiln-455107-s1
   REGION: us-central1
-  REDIS_ADDR: 10.11.16.3:6379
+  REDIS_ADDR: 10.11.16.3:6378
   REDIS_PASSWORD: d2f5bd88-2e92-443f-bf97-5cd14fca4a08
   REDIS_DB: 0
   INSTANCE_ID: keepa-redis
