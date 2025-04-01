@@ -12,6 +12,8 @@ env:
   REDIS_PASSWORD: d2f5bd88-2e92-443f-bf97-5cd14fca4a08
   REDIS_DB: 0
   INSTANCE_ID: keepa-redis
+  VPC_CONNECTOR: redis-connector  # Serverless VPC Access 连接器名称
+
 
 
 jobs:
@@ -65,4 +67,4 @@ jobs:
             --set-env-vars=REDIS_DB=${{ env.REDIS_DB }} \
             --set-env-vars=INSTANCE_ID=${{env.INSTANCE_ID}} \
             --set-env-vars=REGION=${{env.REGION}} \
-            --vpc-connector=${{ env.PROJECT_ID }}-vpc-connector \
+            --vpc-connector=redis-connector 
